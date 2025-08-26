@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Subtle mafia vibe background */
+:root {
+  --bg-start: #0b1324;
+  --bg-end: #000000;
+}
+html, body {
+  min-height: 100%;
+}
+body {
+  background: radial-gradient(1200px 800px at 50% -20%, var(--bg-start) 0%, var(--bg-end) 60%);
+}
