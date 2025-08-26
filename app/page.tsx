@@ -1,13 +1,50 @@
 'use client';
 
-import React from "react";
+import React, { JSX } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import Image from 'next/image';
+
+// Types for components
+type HistoryRow = {
+  id: string;
+  hole: string;
+  flop: string;
+  heroCat: string;
+  better: number;
+  worse: number;
+  tie: number;
+  recommendation: Decision;
+  decision: Decision;
+  correct: boolean;
+};
+
+type Decision = "Call" | "Fold";
+import Image from 'next/image';
 
 // Sopranos-flavored Beginner Flop Helper — Call or Fold
 // Cute mafia UI + animations, big cards, explicit CALL/FOLD choice,
 // rotating quotes (sourced from Parade's Sopranos quotes article; fetched at runtime with fallback),
 // and a periodic popup mini‑game: "Take the gun or the cannoli".
 // Decision rule: If (#hands better than you) > (#hands worse than you) ⇒ Fold. Otherwise (including ties) ⇒ Call.
+
+type Card = { r: number; s: string }; // r: 2..14 (A)
+
+type SimpleResult = {
+  heroCat: string;
+  better: number;
+  worse: number;
+  tie: number;
+  betterBreakdown: Breakdown;
+  worseBreakdown: Breakdown;
+  recommendation: Decision;
+};
+
+type Breakdown = { 
+  [label: string]: { 
+    count: number; 
+    samples: string[] 
+  } 
+};
 
 export default function PokerFlopTrainer() {
   // ------------------ Card utils ------------------
@@ -172,20 +209,36 @@ export default function PokerFlopTrainer() {
   }
 
   // ------------------ React state ------------------
-  const [holeText, setHoleText] = React.useState("Ah Ad");
-  const [flopText, setFlopText] = React.useState("Kc 7h 2d");
-  const [busy, setBusy] = React.useState(false);
+  const [holeText, setHoleText] = React.useState<string>("Ah Ad");
+  const [flopText, setFlopText] = React.useState<string>("Kc 7h 2d");
+  const [busy, setBusy] = React.useState<boolean>(false);
   const [simple, setSimple] = React.useState<SimpleResult | null>(null);
-
-  type Decision = "Call" | "Fold";
   const [decision, setDecision] = React.useState<Decision | null>(null);
   const [verdict, setVerdict] = React.useState<null | { correct: boolean; expected: Decision }>(null);
 
   // Hand History (beginner)
   type HistoryRow = { id: string; hole: string; flop: string; heroCat: string; better: number; worse: number; tie: number; recommendation: "Fold"|"Call"; decision: Decision; correct: boolean };
   const [history, setHistory] = React.useState<HistoryRow[]>([]);
-  React.useEffect(()=>{ try { const raw = localStorage.getItem("flopBeginnerHistory"); if (raw) setHistory(JSON.parse(raw)); } catch {} },[]);
-  React.useEffect(()=>{ try { localStorage.setItem("flopBeginnerHistory", JSON.stringify(history.slice(-200))); } catch {} },[history]);
+  
+  React.useEffect(() => { 
+    try { 
+      const raw = localStorage.getItem("flopBeginnerHistory"); 
+      if (raw) {
+        const parsed = JSON.parse(raw) as HistoryRow[];
+        setHistory(parsed); 
+      }
+    } catch (err) {
+      console.warn('Failed to load history:', err);
+    } 
+  }, []);
+  
+  React.useEffect(() => { 
+    try { 
+      localStorage.setItem("flopBeginnerHistory", JSON.stringify(history.slice(-200))); 
+    } catch (err) {
+      console.warn('Failed to save history:', err);
+    } 
+  }, [history]);
 
   // Quote rotation — attempt live fetch from Parade with fallback
   const QUOTES_FALLBACK = [
@@ -201,20 +254,30 @@ export default function PokerFlopTrainer() {
   ];
   const [quotes, setQuotes] = React.useState<string[]>(QUOTES_FALLBACK);
   const [quoteIndex, setQuoteIndex] = React.useState(0);
-  React.useEffect(()=>{
-    // Use text mirror to avoid CORS where possible
-    const url = "https://r.jina.ai/http://parade.com/tv/sopranos-quotes";
-    fetch(url).then(r=>r.text()).then(txt=>{
-      // crude parse: split on quotes; keep lines with multiple spaces & punctuation
-      const lines = txt.split(/\n+/).map(s=>s.trim()).filter(s=>s.length>0);
-      const picks = lines.filter(s=>/\S+/.test(s) && /[\.\!\?\"]$/.test(s) && s.length>20).slice(0,50);
-      if (picks.length>5) setQuotes(picks);
-    }).catch(()=>{});
-  },[]);
-  React.useEffect(()=>{
-    const id = setInterval(()=> setQuoteIndex(i => (i+1)%quotes.length), 8000);
-    return ()=> clearInterval(id);
-  },[quotes.length]);
+  React.useEffect(() => {
+    const fetchQuotes = async () => {
+      try {
+        // Use text mirror to avoid CORS where possible
+        const url = "https://r.jina.ai/http://parade.com/tv/sopranos-quotes";
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Failed to fetch quotes');
+        
+        const txt = await response.text();
+        // crude parse: split on quotes; keep lines with multiple spaces & punctuation
+        const lines = txt.split(/\n+/).map(s => s.trim()).filter(s => s.length > 0);
+        const picks = lines.filter(s => /\S+/.test(s) && /[\.\!\?\"]$/.test(s) && s.length > 20).slice(0, 50);
+        if (picks.length > 5) setQuotes(picks);
+      } catch (err) {
+        console.warn('Failed to fetch quotes:', err);
+        // Fallback quotes are already set in initial state
+      }
+    };
+    fetchQuotes();
+  }, []);
+  React.useEffect(() => {
+    const id = setInterval(() => setQuoteIndex((i: number) => (i + 1) % quotes.length), 8000);
+    return () => clearInterval(id);
+  }, [quotes.length]);
 
   // Mini‑game: show after every 3rd decision
   const [decisions, setDecisions] = React.useState(0);
@@ -290,9 +353,9 @@ export default function PokerFlopTrainer() {
       const correct = userChoice === res.recommendation || (res.better===res.worse && userChoice==="Call");
       setVerdict({ correct, expected: res.recommendation });
       const row: HistoryRow = { id: new Date().toISOString(), hole: holeText.trim(), flop: flopText.trim(), heroCat: res.heroCat, better: res.better, worse: res.worse, tie: res.tie, recommendation: res.recommendation, decision: userChoice, correct };
-      setHistory(h => [...h, row].slice(-200));
+      setHistory((h: HistoryRow[]) => [...h, row].slice(-200));
       setBusy(false);
-      setDecisions(n => {
+      setDecisions((n: number) => {
         const next = n+1;
         if (next % 3 === 0) {
           setMiniPick(null);
@@ -310,7 +373,7 @@ export default function PokerFlopTrainer() {
 
   function exportCSV(){
     const headers = ["time","hole","flop","heroCat","better","worse","tie","recommendation","decision","correct"];
-    const rows = history.map(h => [h.id,h.hole,h.flop,h.heroCat,h.better,h.worse,h.tie,h.recommendation,h.decision,h.correct].join(","));
+    const rows = history.map((h: HistoryRow) => [h.id,h.hole,h.flop,h.heroCat,h.better,h.worse,h.tie,h.recommendation,h.decision,h.correct].join(","));
     const csv = [headers.join(","), ...rows].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -610,7 +673,7 @@ export default function PokerFlopTrainer() {
               </div>
               <div className="p-4 grid sm:grid-cols-2 gap-4">
                 <div className="rounded-xl overflow-hidden border border-slate-800 bg-black/30">
-                  <img src={GUN_IMG} alt="Revolver" className="w-full h-52 object-contain bg-black"/>
+                  <Image src={GUN_IMG} alt="Revolver" className="w-full h-52 object-contain bg-black" width={400} height={208} />
                   <div className="p-3 flex items-center justify-between">
                     <div>
                       <div className="font-semibold">Take the Gun</div>
@@ -620,7 +683,7 @@ export default function PokerFlopTrainer() {
                   </div>
                 </div>
                 <div className="rounded-xl overflow-hidden border border-slate-800 bg-black/30">
-                  <img src={CANNOLI_IMG} alt="Cannoli" className="w-full h-52 object-cover"/>
+                  <Image src={CANNOLI_IMG} alt="Cannoli" className="w-full h-52 object-cover" width={400} height={208} />
                   <div className="p-3 flex items-center justify-between">
                     <div>
                       <div className="font-semibold">Take the Cannoli</div>
